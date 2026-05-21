@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wecker Control</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Wecker Control</h1>
+      <span class="conn-badge" :class="connected ? 'conn-ok' : 'conn-err'">
+        {{ connected ? 'Connected' : 'Disconnected' }}
+      </span>
+    </header>
+
+    <main>
+      <!-- Bed Sensor -->
+      <section class="card">
+        <h2>Bed Sensor</h2>
+        <div class="status-row">
+          <div class="bed-dot" :class="bedOccupied ? 'occupied' : 'empty'"></div>
+          <span class="status-label">{{ bedOccupied ? 'Occupied' : 'Empty' }}</span>
+          <span v-if="state.bedSimulated" class="sim-badge">SIM</span>
+        </div>
+        <div class="field-row">
+          <label class="toggle-label">
+            <input type="checkbox" v-model="simEnabled" @change="applySimulate"> Simulate sensor
+          </label>
+        </div>
+        <div v-if="simEnabled" class="btn-row">
+          <button class="btn btn-green" @click="simulateBed(true)">Occupied</button>
+          <button class="btn btn-red" @click="simulateBed(false)">Empty</button>
+        </div>
+        <p class="ts-label">Last update: {{ lastSensorTime }}</p>
+      </section>
+
+      <!-- LED Strip -->
+      <section class="card">
+        <h2>LED Strip</h2>
+        <div class="field-row">
+          <label>Color</label>
+          <input type="color" v-model="ledHex" @input="onColorPick">
+        </div>
+        <div class="field-row">
+          <label>R</label>
+          <input type="range" min="0" max="255" v-model.number="led.r" @input="onRgbSlider">
+          <span class="val">{{ led.r }}</span>
+        </div>
+        <div class="field-row">
+          <label>G</label>
+          <input type="range" min="0" max="255" v-model.number="led.g" @input="onRgbSlider">
+          <span class="val">{{ led.g }}</span>
+        </div>
+        <div class="field-row">
+          <label>B</label>
+          <input type="range" min="0" max="255" v-model.number="led.b" @input="onRgbSlider">
+          <span class="val">{{ led.b }}</span>
+        </div>
+        <div class="field-row">
+          <label>W</label>
+          <input type="range" min="0" max="255" v-model.number="led.w" @input="debouncedApplyLed">
+          <span class="val">{{ led.w }}</span>
+        </div>
+        <div class="field-row">
+          <label>Brightness</label>
+          <input type="range" min="0" max="100" v-model.number="ledBrightnessPct" @input="debouncedApplyLed">
+          <span class="val">{{ ledBrightnessPct }}%</span>
+        </div>
+        <div class="btn-row">
+          <button class="btn" @click="ledOff">Off</button>
+        </div>
+      </section>
+
+      <!-- Screen -->
+      <section class="card">
+        <h2>Screen</h2>
+        <div class="field-row">
+          <label>Brightness</label>
+          <input type="range" min="0" max="255" v-model.number="screen.brightness"
+                 @change="applyScreen">
+          <span class="val">{{ screen.brightness }}</span>
+        </div>
+        <div class="field-row">
+          <label class="toggle-label">
+            <input type="checkbox" v-model="screen.on" @change="applyScreen"> Screen On
+          </label>
+        </div>
+      </section>
+
+      <!-- Audio -->
+      <section class="card">
+        <h2>Audio</h2>
+        <div class="field-row">
+          <label>Volume</label>
+          <input type="range" min="0" max="100" v-model.number="volume" @input="debouncedApplyVolume">
+          <span class="val">{{ volume }}%</span>
+        </div>
+        <div class="field-row">
+          <input type="file" ref="audioFile" accept=".wav,.mp3,.ogg,.flac">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" @click="playAudio" :disabled="state.audio?.playing">
+            Upload &amp; Play
+          </button>
+          <button class="btn btn-red" @click="stopAudio" :disabled="!state.audio?.playing">
+            Stop
+          </button>
+        </div>
+        <p class="ts-label" :class="state.audio?.error ? 'error-label' : ''">
+          {{ state.audio?.error ? `Error: ${state.audio.error}` :
+             state.audio?.playing ? `Playing: ${state.audio.filename}` : 'Idle' }}
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

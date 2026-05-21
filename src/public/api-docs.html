@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Wecker API Docs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+  <style>
+    body { margin: 0; }
+    .swagger-ui .topbar .download-url-wrapper { display: none; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    const spec = {
+      openapi: "3.0.3",
+      info: {
+        title: "Wecker Control API",
+        version: "1.0.0",
+        description: [
+          "REST API for the Wecker alarm clock.",
+          "",
+          "Controls the WS2812B LED strip, screen backlight, audio playback, and bed presence sensor.",
+          "",
+          "**Real-time updates via Socket.IO:** connect to `ws://<pi-ip>:5000` and listen for the `state_update` event,",
+          "which is emitted with the full state object whenever anything changes."
+        ].join("\n")
+      },
+      servers: [{ url: "", description: "This Pi" }],
+      tags: [
+        { name: "State",  description: "Read the full system state snapshot" },
+        { name: "LED",    description: "WS2812B LED strip — 15 pixels, GRBW format, GPIO D21" },
+        { name: "Screen", description: "Display backlight brightness and power" },
+        { name: "Audio",  description: "File playback and system volume" },
+        { name: "Sensor", description: "Bed presence sensor and testing simulation" }
+      ],
+
+      components: {
+        schemas: {
+          LedState: {
+            type: "object",
+            description: "Current LED strip state",
+            properties: {
+              r:          { type: "integer", minimum: 0, maximum: 255, description: "Red channel (0–255)",   example: 0   },
+              g:          { type: "integer", minimum: 0, maximum: 255, description: "Green channel (0–255)", example: 0   },
+              b:          { type: "integer", minimum: 0, maximum: 255, description: "Blue channel (0–255)",  example: 0   },
+              w:          { type: "integer", minimum: 0, maximum: 255, description: "White channel (0–255) — dedicated white LEDs on the GRBW strip", example: 0 },
+              brightness: { type: "number",  minimum: 0, maximum: 1,   description: "Overall strip brightness as a fraction (0.0 = off, 1.0 = full)", example: 0.5 }
+            }
+          },
+          ScreenState: {
+            type: "object",
+            description: "Current screen backlight state",
+            properties: {
+              brightness: { type: "integer", minimum: 0, maximum: 255, description: "Backlight level written to /sys/class/backlight/rpi_backlight/brightness", example: 128 },
+              on:         { type: "boolean", description: "false blanks the screen via bl_power (without cutting power)", example: true }
+            }
+          },
+          AudioState: {
+            type: "object",
+            description: "Current audio playback state",
+            properties: {
+              playing:  { type: "boolean", description: "true while a file is being played", example: false },
+              filename: { type: "string",  nullable: true, description: "Basename of the currently playing file, or null when idle", example: null },
+              error:    { type: "string",  nullable: true, description: "Spawn error message if the last play attempt failed (e.g. player not installed), otherwise null", example: null }
+            }
+          },
+          FullState: {
+            type: "object",
+            description: "Complete system state returned by GET /api/state and carried in every state_update Socket.IO event",
+            properties: {
+              bedOccupied:   { type: "boolean", description: "Whether the bed is currently detected as occupied",                   example: false },
+              bedSimulated:  { type: "boolean", description: "true when simulation mode is active and real sensor data is ignored", example: false },
+              bedSimValue:   { type: "boolean", description: "The value injected by simulation mode",                              example: false },
+              lastSensorTs:  { type: "integer", description: "Unix timestamp in milliseconds of the last bed-state change",        example: 1716250000000 },
+              led:    { "$ref": "#/components/schemas/LedState"    },
+              screen: { "$ref": "#/components/schemas/ScreenState" },
+              audio:  { "$ref": "#/components/schemas/AudioState"  },
+              volume: { type: "integer", minimum: 0, maximum: 100, description: "Current system output volume (0–100)", example: 75 }
+            }
+          },
+          OkResponse: {
+            type: "object",
+            properties: {
+              ok: { type: "boolean", example: true }
+            }
+          },
+          ErrorResponse: {
+            type: "object",
+            properties: {
+              ok:    { type: "boolean", example: false },
+              error: { type: "string",  example: "Descriptive error message" }
+            }
+          }
+        }
+      },
+
+      paths: {
+
+        "/api/state": {
+          get: {
+            tags: ["State"],
+            summary: "Get full system state",
+            description: "Returns a snapshot of every subsystem. This is also the shape emitted as `state_update` over Socket.IO.",
+            responses: {
+              200: {
+                description: "Current state",
+                content: {
+                  "application/json": {
+                    schema: { "$ref": "#/components/schemas/FullState" },
+                    example: {
+                      bedOccupied: false, bedSimulated: false, bedSimValue: false,
+                      lastSensorTs: 1716250000000,
+                      led:    { r: 0, g: 0, b: 0, w: 0, brightness: 0.5 },
+                      screen: { brightness: 128, on: true },
+                      audio:  { playing: false, filename: null, error: null },
+                      volume: 75
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+
+        "/api/led": {
+          post: {
+            tags: ["LED"],
+            summary: "Set LED strip color and/or brightness",
+            description: [
+              "All five fields are **optional** — any omitted field keeps its current value.",
+              "",
+              "The strip is a GRBW type, so `w` controls dedicated white LEDs independently of `r/g/b`.",
+              "For a pure white light, either use `w: 255` (crisp cool white from the white LEDs)",
+              "or mix `r/g/b` (warmer tones). Both can be combined.",
+              "",
+              "Changes are applied to the hardware immediately.",
+              "During interactive slider use, the dashboard sends commands over Socket.IO instead of HTTP for lower latency."
+            ].join("\n"),
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      r:          { type: "integer", minimum: 0, maximum: 255, description: "Red channel (0–255)",   example: 255 },
+                      g:          { type: "integer", minimum: 0, maximum: 255, description: "Green channel (0–255)", example: 0   },
+                      b:          { type: "integer", minimum: 0, maximum: 255, description: "Blue channel (0–255)",  example: 0   },
+                      w:          { type: "integer", minimum: 0, maximum: 255, description: "White channel (0–255) — dedicated white LEDs on the GRBW strip, independent of r/g/b", example: 0 },
+                      brightness: { type: "number",  minimum: 0, maximum: 1,   description: "Overall strip brightness as a fraction — applied on top of r/g/b/w values (0.0 = off, 1.0 = full)", example: 0.8 }
+                    }
+                  },
+                  examples: {
+                    red:              { summary: "Solid red at 80%",         value: { r: 255, g: 0,   b: 0,   w: 0,   brightness: 0.8 } },
+                    green:            { summary: "Solid green at 60%",        value: { r: 0,   g: 255, b: 0,   w: 0,   brightness: 0.6 } },
+                    blue:             { summary: "Solid blue at 60%",         value: { r: 0,   g: 0,   b: 255, w: 0,   brightness: 0.6 } },
+                    warm_white:       { summary: "Warm white (RGB mix)",      value: { r: 255, g: 180, b: 80,  w: 0,   brightness: 0.5 } },
+                    cool_white:       { summary: "Cool white (W channel)",    value: { r: 0,   g: 0,   b: 0,   w: 255, brightness: 0.7 } },
+                    brightness_only:  { summary: "Dim without changing color",value: { brightness: 0.2 } },
+                    off:              { summary: "Turn strip off",            value: { r: 0,   g: 0,   b: 0,   w: 0,   brightness: 0   } }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: "Color applied",
+                content: {
+                  "application/json": {
+                    schema: {
+                      allOf: [
+                        { "$ref": "#/components/schemas/OkResponse" },
+                        { type: "object", properties: { led: { "$ref": "#/components/schemas/LedState" } } }
+                      ]
+                    },
+                    example: { ok: true, led: { r: 255, g: 0, b: 0, w: 0, brightness: 0.8 } }
+                  }
+                }
+              },
+              400: {
+                description: "brightness out of range",
+                content: {
+                  "application/json": {
+                    schema: { "$ref": "#/components/schemas/ErrorResponse" },
+                    example: { ok: false, error: "brightness must be 0.0–1.0" }
+                  }
+                }
+              }
+            }
+          }
+        },
+
+        "/api/screen": {
+          post: {
+            tags: ["Screen"],
+            summary: "Set screen brightness and/or power",
+            description: [
+              "Both fields are **optional**.",
+              "",
+              "`brightness` is written directly to `/sys/class/backlight/rpi_backlight/brightness`.",
+              "The range is 0–255 where 0 is the dimmest the backlight supports (not off) and 255 is full brightness.",
+              "",
+              "`on: false` writes to `bl_power` to blank the screen without cutting power — the backlight level is preserved",
+              "so it comes back at the same brightness when turned on again."
+            ].join("\n"),
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      brightness: { type: "integer", minimum: 0, maximum: 255, description: "Backlight level (0–255). 0 is minimum backlight, not off — use `on: false` to blank the screen.", example: 128 },
+                      on:         { type: "boolean", description: "Power the screen on (true) or blank it (false). Does not affect the stored brightness level.", example: true }
+                    }
+                  },
+                  examples: {
+                    full:      { summary: "Full brightness, screen on", value: { brightness: 255, on: true  } },
+                    half:      { summary: "Half brightness, screen on", value: { brightness: 128, on: true  } },
+                    dim:       { summary: "Dim (25%), screen on",       value: { brightness: 64,  on: true  } },
+                    blank:     { summary: "Blank screen (keep level)",  value: { on: false } },
+                    unblank:   { summary: "Unblank screen",             value: { on: true  } }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: "Applied",
+                content: {
+                  "application/json": {
+                    schema: {
+                      allOf: [
+                        { "$ref": "#/components/schemas/OkResponse" },
+                        { type: "object", properties: { screen: { "$ref": "#/components/schemas/ScreenState" } } }
+                      ]
+                    },
+                    example: { ok: true, screen: { brightness: 128, on: true } }
+                  }
+                }
+              }
+            }
+          }
+        },
+
+        "/api/audio/play": {
+          post: {
+            tags: ["Audio"],
+            summary: "Upload and play an audio file",
+            description: [
+              "Upload an audio file as `multipart/form-data` with the field name `file`.",
+              "",
+              "**Supported formats:** `.wav`, `.mp3`, `.ogg`, `.flac`",
+              "",
+              "`.wav` files are played via `aplay` (always available on Pi OS).",
+              "All other formats are played via `ffplay` — install with `sudo apt install ffmpeg` if not already present.",
+              "",
+              "If audio is already playing, the previous track is stopped before starting the new one.",
+              "The uploaded file is saved to the `uploads/` directory with a timestamp prefix."
+            ].join("\n"),
+            requestBody: {
+              required: true,
+              content: {
+                "multipart/form-data": {
+                  schema: {
+                    type: "object",
+                    required: ["file"],
+                    properties: {
+                      file: {
+                        type: "string",
+                        format: "binary",
+                        description: "Audio file to upload and play immediately. Supported: .wav, .mp3, .ogg, .flac"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: "File saved and playback started",
+                content: {
+                  "application/json": {
+                    schema: {
+                      allOf: [
+                        { "$ref": "#/components/schemas/OkResponse" },
+                        { type: "object", properties: {
+                            filename: { type: "string", description: "Timestamped filename the file was saved as", example: "1716250000000_alarm.wav" }
+                        }}
+                      ]
+                    },
+                    example: { ok: true, filename: "1716250000000_alarm.wav" }
+                  }
+                }
+              },
+              400: {
+                description: "No file provided or unsupported format",
+                content: {
+                  "application/json": {
+                    schema: { "$ref": "#/components/schemas/ErrorResponse" },
+                    examples: {
+                      no_file:  { summary: "No file in request",    value: { ok: false, error: "No file uploaded" } },
+                      bad_type: { summary: "Unsupported extension", value: { ok: false, error: "Unsupported file type" } }
+                    }
+                  }
+                }
+              },
+              500: {
+                description: "Failed to save file to disk",
+                content: {
+                  "application/json": {
+                    schema: { "$ref": "#/components/schemas/ErrorResponse" },
+                    example: { ok: false, error: "Failed to save file" }
+                  }
+                }
+              }
+            }
+          }
+        },
+
+        "/api/audio/stop": {
+          post: {
+            tags: ["Audio"],
+            summary: "Stop audio playback",
+            description: "Kills the current playback process if one is running. No-op if nothing is playing. A `state_update` is emitted over Socket.IO after stopping.",
+            responses: {
+              200: {
+                description: "Playback stopped (or was already idle)",
+                content: {
+                  "application/json": {
+                    schema: { "$ref": "#/components/schemas/OkResponse" },
+                    example: { ok: true }
+                  }
+                }
+              }
+            }
+          }
+        },
+
+        "/api/volume": {
+          post: {
+            tags: ["Audio"],
+            summary: "Set system output volume",
+            description: [
+              "Sets the ALSA mixer volume by running `amixer set <control> <volume>%`.",
+              "",
+              "The control name defaults to `PCM` (as reported by `amixer` on this Pi) and can be changed",
+              "in `config.js` under `ALSA_CONTROL` if your setup uses a different control name.",
+              "",
+              "Note: the Pi's built-in 3.5mm jack uses a single joined control for both channels — volume is always mono even though the output is stereo."
+            ].join("\n"),
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["volume"],
+                    properties: {
+                      volume: {
+                        type: "integer",
+                        minimum: 0,
+                        maximum: 100,
+                        description: "Volume percentage (0 = mute, 100 = maximum). Passed directly to amixer.",
+                        example: 75
+                      }
+                    }
+                  },
+                  examples: {
+                    full:  { summary: "Maximum volume",   value: { volume: 100 } },
+                    high:  { summary: "75% — good default", value: { volume: 75  } },
+                    half:  { summary: "50%",              value: { volume: 50  } },
+                    quiet: { summary: "25% — quiet",      value: { volume: 25  } },
+                    mute:  { summary: "Mute (0%)",        value: { volume: 0   } }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: "Volume set",
+                content: {
+                  "application/json": {
+                    schema: {
+                      allOf: [
+                        { "$ref": "#/components/schemas/OkResponse" },
+                        { type: "object", properties: {
+                            volume: { type: "integer", minimum: 0, maximum: 100, example: 75 }
+                        }}
+                      ]
+                    },
+                    example: { ok: true, volume: 75 }
+                  }
+                }
+              },
+              400: {
+                description: "Volume value missing or not a number",
+                content: {
+                  "application/json": {
+                    schema: { "$ref": "#/components/schemas/ErrorResponse" },
+                    example: { ok: false, error: "volume must be 0–100" }
+                  }
+                }
+              }
+            }
+          }
+        },
+
+        "/api/sensor/simulate": {
+          post: {
+            tags: ["Sensor"],
+            summary: "Override the bed sensor for testing",
+            description: [
+              "When `enabled` is `true`, incoming serial data from the Xiao is ignored and `value` is used as the bed state instead.",
+              "This lets you test alarm logic without needing the physical sensor or Xiao connected.",
+              "",
+              "Set `enabled: false` to return to live sensor data from the Xiao.",
+              "",
+              "The simulated state is broadcast as a `state_update` Socket.IO event immediately.",
+              "The `SIM` badge appears in the dashboard while simulation is active."
+            ].join("\n"),
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      enabled: {
+                        type: "boolean",
+                        description: "true = activate simulation (ignore real sensor), false = return to live sensor data",
+                        example: true
+                      },
+                      value: {
+                        type: "boolean",
+                        description: "The bed state to inject when simulation is enabled. true = occupied, false = empty. Ignored when enabled is false.",
+                        example: true
+                      }
+                    }
+                  },
+                  examples: {
+                    sim_occupied: { summary: "Simulate bed occupied", value: { enabled: true,  value: true  } },
+                    sim_empty:    { summary: "Simulate bed empty",    value: { enabled: true,  value: false } },
+                    disable:      { summary: "Disable simulation (use real sensor)", value: { enabled: false, value: false } }
+                  }
+                }
+              }
+            },
+            responses: {
+              200: {
+                description: "Simulation state applied",
+                content: {
+                  "application/json": {
+                    schema: {
+                      allOf: [
+                        { "$ref": "#/components/schemas/OkResponse" },
+                        { type: "object", properties: {
+                            bedSimulated: { type: "boolean", description: "Whether simulation mode is now active", example: true },
+                            bedOccupied:  { type: "boolean", description: "The resulting bed state after applying the simulation",  example: true }
+                        }}
+                      ]
+                    },
+                    example: { ok: true, bedSimulated: true, bedOccupied: true }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+      }
+    };
+
+    SwaggerUIBundle({
+      spec,
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+      layout: "BaseLayout",
+      tryItOutEnabled: true,
+      requestInterceptor: (req) => {
+        req.url = req.url.replace(/^https?:\/\/[^/]+/, "");
+        return req;
+      }
+    });
+  </script>
+</body>
+</html>

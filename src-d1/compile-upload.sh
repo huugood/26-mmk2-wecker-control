@@ -1,0 +1,1 @@
+arduino-cli compile --fqbn Seeeduino:nrf52:xiaonRF52840Sense --upload --port /dev/ttyACM0
