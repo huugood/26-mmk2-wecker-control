@@ -11,21 +11,32 @@
  *   so you can find your threshold on a Mac with the Serial Monitor or:
  *     screen /dev/cu.usbmodemXXXX 115200
  *   Comment out the #define below to build the BLE-only production binary.
+ *
+ * BLE: uses Adafruit's bundled Bluefruit library (bluefruit.h), not ArduinoBLE.
+ * The XIAO's Seeeduino:nrf52 board core is Adafruit's nRF52 core, which ships
+ * its own SoftDevice-based BLE stack — ArduinoBLE expects the mbed-based nRF52
+ * core (Nano 33 BLE) and fails to link (`undefined reference to HCITransport`)
+ * on this board. bluefruit.h needs no extra library install.
  */
 
-#define CALIBRATION_MODE
+//#define CALIBRATION_MODE
 
-#include <ArduinoBLE.h>
-#include <Adafruit_TinyUSB.h>
+#include <bluefruit.h>
 
 // Tune this after reading calibration output
 #define BED_THRESHOLD  100   // ADC counts (0–1023); raise if too sensitive
 
-#define SERVICE_UUID        "12345678-1234-1234-1234-123456789abc"
-#define CHAR_UUID           "12345678-1234-1234-1234-123456789abd"
+// 12345678-1234-1234-1234-123456789abc / ...abd, written byte-for-byte in the
+// same order as the human-readable UUID string (Adafruit's convention).
+uint8_t serviceUuid[16] = { 0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x12, 0x34,
+                             0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC };
+uint8_t charUuid[16]    = { 0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x12, 0x34,
+                             0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBD };
 
-BLEService bedService(SERVICE_UUID);
-BLEByteCharacteristic bedChar(CHAR_UUID, BLERead | BLENotify);
+#ifndef CALIBRATION_MODE
+BLEService        bedService(serviceUuid);
+BLECharacteristic bedChar(charUuid);
+#endif
 
 int  lastBedState    = -1;
 unsigned long lastHeartbeat = 0;
@@ -37,18 +48,28 @@ void setup() {
   // Wait briefly for serial on cold boot, then proceed without it
   for (int i = 0; i < 20 && !Serial; i++) delay(100);
 
-  if (!BLE.begin()) {
-    // BLE init failed — blink the LED to signal error and halt
-    pinMode(LED_BUILTIN, OUTPUT);
-    while (true) { digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); delay(200); }
-  }
+  Bluefruit.begin();
+  Bluefruit.setTxPower(4);
+  Bluefruit.setName("Wecker-Sensor");
 
-  BLE.setLocalName("Wecker-Sensor");
-  BLE.setAdvertisedService(bedService);
-  bedService.addCharacteristic(bedChar);
-  BLE.addService(bedService);
-  bedChar.writeValue(0);
-  BLE.advertise();
+  bedService.begin();
+
+  bedChar.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
+  bedChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  bedChar.setFixedLen(1);
+  bedChar.begin();
+  uint8_t initVal = 0;
+  bedChar.write(&initVal, 1);
+
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addTxPower();
+  Bluefruit.Advertising.addService(bedService);
+  Bluefruit.Advertising.addName();
+
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  Bluefruit.Advertising.setInterval(32, 244); // in units of 0.625ms
+  Bluefruit.Advertising.setFastTimeout(30);   // seconds in fast mode
+  Bluefruit.Advertising.start(0);             // 0 = advertise forever
 #endif
 
   analogReadResolution(10);  // 0–1023
@@ -70,13 +91,13 @@ void loop() {
 
 #else
   // --- BLE production mode ---
-  BLE.poll();
-
   bool changed = (bedNow != lastBedState);
   bool heartbeat = (millis() - lastHeartbeat >= 1000);
 
   if (changed || (heartbeat && lastBedState >= 0)) {
-    bedChar.writeValue((uint8_t)bedNow);
+    uint8_t v = (uint8_t)bedNow;
+    bedChar.write(&v, 1);
+    bedChar.notify(&v, 1);
     lastBedState = bedNow;
     lastHeartbeat = millis();
   }
