@@ -4,6 +4,8 @@ const path = require("path");
 class LEDController {
   constructor() {
     this._proc = null;
+    this._fadeTimer = null;
+    this._current = { r: 0, g: 0, b: 0, w: 0, brightness: 0 };
     this._start();
   }
 
@@ -25,10 +27,34 @@ class LEDController {
     const cmd = { r, g, b, w };
     if (brightness !== undefined) cmd.brightness = brightness;
     this._proc.stdin.write(JSON.stringify(cmd) + "\n");
+    this._current = { r, g, b, w, brightness: brightness ?? this._current.brightness };
+  }
+
+  fadeTo({ r = 0, g = 0, b = 0, w = 0, brightness = 0 } = {}, durationMs = 1000) {
+    clearInterval(this._fadeTimer);
+    const TICK = 30;
+    const steps = Math.max(1, Math.round(durationMs / TICK));
+    let step = 0;
+    const from = { ...this._current };
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    this._fadeTimer = setInterval(() => {
+      step++;
+      const t = step / steps;
+      const cur = {
+        r: Math.round(lerp(from.r, r, t)),
+        g: Math.round(lerp(from.g, g, t)),
+        b: Math.round(lerp(from.b, b, t)),
+        w: Math.round(lerp(from.w, w, t)),
+        brightness: lerp(from.brightness, brightness, t),
+      };
+      this.setColor(cur);
+      if (step >= steps) clearInterval(this._fadeTimer);
+    }, TICK);
   }
 
   off() {
-    this.setColor({ r: 0, g: 0, b: 0, w: 0 });
+    this.fadeTo({ r: 0, g: 0, b: 0, w: 0, brightness: 0 }, 500);
   }
 }
 

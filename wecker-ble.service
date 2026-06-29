@@ -1,0 +1,15 @@
+[Unit]
+Description=Wecker BLE Scanner
+After=network.target bluetooth.target wecker-control.service
+Requires=bluetooth.target
+
+[Service]
+# Adjust to wherever this repo lives on the Pi
+WorkingDirectory=/home/alarm/wecker/control
+ExecStart=/usr/bin/python3 ble_scanner.py
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

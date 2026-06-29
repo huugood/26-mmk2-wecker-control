@@ -1,0 +1,15 @@
+[Unit]
+Description=Wecker Control Server (Node.js)
+After=network.target
+
+[Service]
+# Adjust WorkingDirectory to wherever this repo lives on the Pi
+WorkingDirectory=/home/alarm/wecker/control/src
+ExecStart=/usr/bin/node app.js
+Restart=always
+RestartSec=3
+# Needs root for GPIO (neopixel DMA) and sysfs backlight writes
+User=root
+
+[Install]
+WantedBy=multi-user.target

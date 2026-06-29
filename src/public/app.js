@@ -1,5 +1,4 @@
-import { createApp, ref, reactive, computed, onMounted } from
-  "https://unpkg.com/vue@3/dist/vue.esm-browser.js";
+import { createApp, ref, reactive, computed, onMounted } from "/vendor/vue.esm-browser.min.js";
 
 function debounce(fn, ms) {
   let timer;

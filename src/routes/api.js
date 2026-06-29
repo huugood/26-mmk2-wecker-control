@@ -7,7 +7,7 @@ const { state, toJSON } = require("../state");
 const led = require("../ledController");
 const screen = require("../screenController");
 const audio = require("../audioPlayer");
-const { ALSA_CONTROL } = require("../config");
+const { ALSA_CONTROL, ALARM_SOUND_PATH } = require("../config");
 
 // multer stores to memory so we can rename with a timestamp before saving
 const upload = multer({ storage: multer.memoryStorage() });
@@ -17,6 +17,25 @@ module.exports = function apiRouter(io) {
 
   function emit() {
     io.emit("state_update", toJSON());
+  }
+
+  let _idleTimer = null;
+
+  function _applyAlarmState(status) {
+    clearTimeout(_idleTimer);
+    if (status === "RINGING") {
+      screen.fadeBrightness(255, 800);
+      led.fadeTo({ r: 255, g: 60, b: 0, w: 0, brightness: 1.0 }, 800);
+    } else if (status === "GUARD") {
+      screen.fadeBrightness(60, 1500);
+      led.fadeTo({ r: 180, g: 100, b: 0, w: 0, brightness: 0.3 }, 1500);
+    } else {
+      // IDLE or SNOOZED — dim after a short grace period
+      _idleTimer = setTimeout(() => {
+        screen.fadeBrightness(30, 2000);
+        led.fadeTo({ r: 0, g: 0, b: 0, w: 0, brightness: 0 }, 2000);
+      }, 10000);
+    }
   }
 
   // GET /api/state
@@ -97,6 +116,45 @@ module.exports = function apiRouter(io) {
     });
     emit();
     res.json({ ok: true, volume: v });
+  });
+
+  // POST /api/audio/alarm/play  — play the configured alarm sound in a loop
+  router.post("/audio/alarm/play", (_req, res) => {
+    audio.playLooped(ALARM_SOUND_PATH);
+    emit();
+    res.json({ ok: true, path: ALARM_SOUND_PATH });
+  });
+
+  // POST /api/audio/alarm/stop  — stop looped alarm playback
+  router.post("/audio/alarm/stop", (_req, res) => {
+    audio.stop();
+    emit();
+    res.json({ ok: true });
+  });
+
+  // POST /api/sensor/data  body: {bed: 0|1}  — real hardware sensor data
+  router.post("/sensor/data", (req, res) => {
+    const { bed } = req.body ?? {};
+    if (typeof bed !== "number")
+      return res.status(400).json({ ok: false, error: "bed must be 0 or 1" });
+    const occupied = bed === 1;
+    state.bedOccupied = occupied;
+    state.lastSensorTs = Date.now();
+    emit();
+    res.json({ ok: true, bedOccupied: occupied });
+  });
+
+  // POST /api/alarm/state  body: {status: "IDLE"|"RINGING"|"GUARD"|"SNOOZED"}
+  router.post("/alarm/state", (req, res) => {
+    const { status } = req.body ?? {};
+    const valid = ["IDLE", "RINGING", "GUARD", "SNOOZED"];
+    if (!valid.includes(status))
+      return res.status(400).json({ ok: false, error: `status must be one of: ${valid.join(", ")}` });
+
+    state.alarmStatus = status;
+    _applyAlarmState(status);
+    emit();
+    res.json({ ok: true, status });
   });
 
   // POST /api/sensor/simulate  body: {enabled, value}

@@ -12,6 +12,9 @@ module.exports = {
   UPLOAD_DIR: "uploads",
   ALLOWED_AUDIO_EXTS: [".wav", ".mp3", ".ogg", ".flac"],
 
+  // Absolute path to the alarm sound file on the Pi
+  ALARM_SOUND_PATH: "/home/alarm/alarm_sound.flac",
+
   ALSA_CONTROL: "PCM",
 
   PORT: 5000,

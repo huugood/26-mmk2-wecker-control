@@ -18,6 +18,18 @@ class AudioPlayer {
 
   play(filepath) {
     this.stop();
+    this._looping = false;
+    this._spawn(filepath);
+  }
+
+  playLooped(filepath) {
+    this.stop();
+    this._looping = true;
+    this._loopFile = filepath;
+    this._spawn(filepath);
+  }
+
+  _spawn(filepath) {
     const ext = path.extname(filepath).toLowerCase();
     const [cmd, args] =
       ext === ".wav"
@@ -41,12 +53,19 @@ class AudioPlayer {
 
     this._proc.on("exit", () => {
       this._proc = null;
-      state.audio = { playing: false, filename: null, error: null };
-      this._io?.emit("state_update", toJSON());
+      if (this._looping && this._loopFile) {
+        // Restart immediately for looped alarm playback
+        this._spawn(this._loopFile);
+      } else {
+        state.audio = { playing: false, filename: null, error: null };
+        this._io?.emit("state_update", toJSON());
+      }
     });
   }
 
   stop() {
+    this._looping = false;
+    this._loopFile = null;
     if (this._proc) {
       this._proc.kill();
       this._proc = null;

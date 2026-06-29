@@ -34,6 +34,9 @@ if (bl) {
   }
 }
 
+let _currentBrightness = 128;
+let _fadeTimer = null;
+
 function _write(filePath, value) {
   if (!bl) return;
   fs.writeFile(filePath, String(value), (err) => {
@@ -44,7 +47,25 @@ function _write(filePath, value) {
 function setBrightness(value) {
   // value arrives as 0–255 from the API; scale to the display's actual range
   const scaled = Math.round((value / 255) * maxBrightness);
-  _write(bl.brightness, Math.max(0, Math.min(maxBrightness, scaled)));
+  const clamped = Math.max(0, Math.min(maxBrightness, scaled));
+  _currentBrightness = value;
+  _write(bl.brightness, clamped);
+}
+
+function fadeBrightness(target, durationMs = 1000) {
+  clearInterval(_fadeTimer);
+  const TICK = 30;
+  const steps = Math.max(1, Math.round(durationMs / TICK));
+  let step = 0;
+  const from = _currentBrightness;
+
+  _fadeTimer = setInterval(() => {
+    step++;
+    const t = step / steps;
+    const cur = Math.round(from + (target - from) * t);
+    setBrightness(cur);
+    if (step >= steps) clearInterval(_fadeTimer);
+  }, TICK);
 }
 
 // bl_power is inverted: 0 = on, 1 = blanked
@@ -52,4 +73,4 @@ function setPower(on) {
   _write(bl.power, on ? "0" : "1");
 }
 
-module.exports = { setBrightness, setPower };
+module.exports = { setBrightness, fadeBrightness, setPower };

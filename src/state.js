@@ -7,6 +7,7 @@ const state = {
   screen: { brightness: 128, on: true },
   audio: { playing: false, filename: null, error: null },
   volume: 75,
+  alarmStatus: "IDLE",
 };
 
 function toJSON() {
