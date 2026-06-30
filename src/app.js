@@ -22,8 +22,6 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-require("./serialReader").start(io);
-
 const audio = require("./audioPlayer");
 audio.setIO(io);
 
