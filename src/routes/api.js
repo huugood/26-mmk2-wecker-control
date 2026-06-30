@@ -174,7 +174,7 @@ module.exports = function apiRouter(io) {
     emit();
     if (changed) {
       console.log(`[Sensor] Pushing to PC: is_pressed=${occupied} url=${config.PC_BACKEND_URL || "(not set)"}`);
-      _pushToPc("/api/alarm-session/pressure", { is_pressed: occupied });
+      _pushToPc("/alarm-session/pressure", { is_pressed: occupied });
     }
     res.json({ ok: true, bedOccupied: occupied });
   });
