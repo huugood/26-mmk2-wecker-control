@@ -19,4 +19,8 @@ module.exports = {
 
   PORT: 5000,
   HOST: "0.0.0.0",
+
+  // URL of the PC backend — set this to push bed-sensor events to the alarm service.
+  // Example: "http://192.168.1.42:8000"  Leave empty to disable.
+  PC_BACKEND_URL: "",
 };

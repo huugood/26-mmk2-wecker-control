@@ -7,7 +7,22 @@ const { state, toJSON } = require("../state");
 const led = require("../ledController");
 const screen = require("../screenController");
 const audio = require("../audioPlayer");
-const { ALSA_CONTROL, ALARM_SOUND_PATH } = require("../config");
+const { ALSA_CONTROL, ALARM_SOUND_PATH, PC_BACKEND_URL } = require("../config");
+const http = require("http");
+
+function _pushToPc(path, body) {
+  if (!PC_BACKEND_URL) return;
+  const data = JSON.stringify(body);
+  const url = new URL(path, PC_BACKEND_URL);
+  const req = http.request(
+    { hostname: url.hostname, port: url.port || 80, path: url.pathname, method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } },
+    () => {}
+  );
+  req.on("error", (e) => console.warn("[PC push] Failed:", e.message));
+  req.write(data);
+  req.end();
+}
 
 // multer stores to memory so we can rename with a timestamp before saving
 const upload = multer({ storage: multer.memoryStorage() });
@@ -138,9 +153,11 @@ module.exports = function apiRouter(io) {
     if (typeof bed !== "number")
       return res.status(400).json({ ok: false, error: "bed must be 0 or 1" });
     const occupied = bed === 1;
+    const changed = occupied !== state.bedOccupied;
     state.bedOccupied = occupied;
     state.lastSensorTs = Date.now();
     emit();
+    if (changed) _pushToPc("/api/alarm-session/pressure", { is_pressed: occupied });
     res.json({ ok: true, bedOccupied: occupied });
   });
 
