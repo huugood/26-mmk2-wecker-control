@@ -26,6 +26,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+DEVICE_NAME  = "Wecker"          # prefix match — truncated to "Wecke" in some scans
 SERVICE_UUID = "12345678-1234-1234-1234-123456789abc"
 CHAR_UUID    = "12345678-1234-1234-1234-123456789abd"
 
@@ -47,9 +48,9 @@ def _on_notify(_handle: int, data: bytearray) -> None:
 
 
 async def _run_once() -> None:
-    log.info("Scanning for sensor (service %s)…", SERVICE_UUID)
+    log.info("Scanning for sensor (name prefix '%s')…", DEVICE_NAME)
     device = await BleakScanner.find_device_by_filter(
-        lambda d, adv: SERVICE_UUID.lower() in [s.lower() for s in (adv.service_uuids or [])],
+        lambda d, adv: (d.name or "").startswith(DEVICE_NAME),
         timeout=30.0,
     )
     if device is None:
