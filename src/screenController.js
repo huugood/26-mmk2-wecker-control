@@ -54,7 +54,8 @@ function setBrightness(value) {
 
 function fadeBrightness(target, durationMs = 1000) {
   clearInterval(_fadeTimer);
-  const TICK = 30;
+  // 150ms tick — the DSI backlight I2C controller rejects rapid writes at 30ms
+  const TICK = 150;
   const steps = Math.max(1, Math.round(durationMs / TICK));
   let step = 0;
   const from = _currentBrightness;

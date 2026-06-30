@@ -7,17 +7,31 @@ const { state, toJSON } = require("../state");
 const led = require("../ledController");
 const screen = require("../screenController");
 const audio = require("../audioPlayer");
-const { ALSA_CONTROL, ALARM_SOUND_PATH, PC_BACKEND_URL } = require("../config");
+const { ALSA_CONTROL, ALARM_SOUND_PATH } = require("../config");
+const config = require("../config");
 const http = require("http");
 
+const SETTINGS_FILE = require("path").join(__dirname, "../../settings.json");
+(function _loadSettings() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+    Object.assign(config, saved);
+  } catch { /* first run — no settings file yet */ }
+})();
+
+function _saveSettings() {
+  const toSave = { PC_BACKEND_URL: config.PC_BACKEND_URL };
+  fs.writeFile(SETTINGS_FILE, JSON.stringify(toSave, null, 2), () => {});
+}
+
 function _pushToPc(path, body) {
-  if (!PC_BACKEND_URL) return;
+  if (!config.PC_BACKEND_URL) return;
   const data = JSON.stringify(body);
-  const url = new URL(path, PC_BACKEND_URL);
+  const url = new URL(path, config.PC_BACKEND_URL);
   const req = http.request(
     { hostname: url.hostname, port: url.port || 80, path: url.pathname, method: "POST",
       headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } },
-    () => {}
+    (res) => console.log(`[PC push] ${url.pathname} → ${res.statusCode}`)
   );
   req.on("error", (e) => console.warn("[PC push] Failed:", e.message));
   req.write(data);
@@ -45,11 +59,11 @@ module.exports = function apiRouter(io) {
       screen.fadeBrightness(60, 1500);
       led.fadeTo({ r: 180, g: 100, b: 0, w: 0, brightness: 0.3 }, 1500);
     } else {
-      // IDLE or SNOOZED — dim after a short grace period
+      // IDLE or SNOOZED — dim LEDs after grace period; screen stays at readable level
       _idleTimer = setTimeout(() => {
-        screen.fadeBrightness(30, 2000);
-        led.fadeTo({ r: 0, g: 0, b: 0, w: 0, brightness: 0 }, 2000);
-      }, 10000);
+        screen.fadeBrightness(160, 3000);
+        led.fadeTo({ r: 0, g: 0, b: 0, w: 0, brightness: 0 }, 3000);
+      }, 30000);
     }
   }
 
@@ -156,8 +170,12 @@ module.exports = function apiRouter(io) {
     const changed = occupied !== state.bedOccupied;
     state.bedOccupied = occupied;
     state.lastSensorTs = Date.now();
+    console.log(`[Sensor] bed=${bed} occupied=${occupied} changed=${changed}`);
     emit();
-    if (changed) _pushToPc("/api/alarm-session/pressure", { is_pressed: occupied });
+    if (changed) {
+      console.log(`[Sensor] Pushing to PC: is_pressed=${occupied} url=${config.PC_BACKEND_URL || "(not set)"}`);
+      _pushToPc("/api/alarm-session/pressure", { is_pressed: occupied });
+    }
     res.json({ ok: true, bedOccupied: occupied });
   });
 
@@ -191,6 +209,22 @@ module.exports = function apiRouter(io) {
       bedSimulated: state.bedSimulated,
       bedOccupied: state.bedOccupied,
     });
+  });
+
+  // GET /api/settings
+  router.get("/settings", (_req, res) => {
+    res.json({ pc_backend_url: config.PC_BACKEND_URL || "" });
+  });
+
+  // POST /api/settings  body: {pc_backend_url}
+  router.post("/settings", (req, res) => {
+    const { pc_backend_url } = req.body ?? {};
+    if (typeof pc_backend_url !== "string")
+      return res.status(400).json({ ok: false, error: "pc_backend_url must be a string" });
+    config.PC_BACKEND_URL = pc_backend_url.trim();
+    _saveSettings();
+    console.log(`[Settings] PC_BACKEND_URL set to "${config.PC_BACKEND_URL}"`);
+    res.json({ ok: true, pc_backend_url: config.PC_BACKEND_URL });
   });
 
   return router;

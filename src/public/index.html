@@ -89,6 +89,20 @@
         </div>
       </section>
 
+      <!-- Settings -->
+      <section class="card">
+        <h2>Settings</h2>
+        <div class="field-row">
+          <label>PC Backend URL</label>
+          <input type="text" v-model="pcBackendUrl" placeholder="http://192.168.x.x:8000"
+                 style="flex:1;padding:4px 8px;font-size:0.9rem;">
+          <button class="btn btn-primary" @click="savePcUrl" style="margin-left:8px;">
+            {{ pcUrlSaved ? 'Saved ✓' : 'Save' }}
+          </button>
+        </div>
+        <p class="ts-label">Used to push bed sensor events to the alarm backend.</p>
+      </section>
+
       <!-- Audio -->
       <section class="card">
         <h2>Audio</h2>

@@ -142,22 +142,37 @@ createApp({
       await fetch("/api/audio/stop", { method: "POST" });
     }
 
+    const pcBackendUrl = ref("");
+    const pcUrlSaved = ref(false);
+
+    async function savePcUrl() {
+      await post("/api/settings", { pc_backend_url: pcBackendUrl.value });
+      pcUrlSaved.value = true;
+      setTimeout(() => { pcUrlSaved.value = false; }, 2000);
+    }
+
     const socket = window.io();
     socket.on("connect", () => { connected.value = true; });
     socket.on("disconnect", () => { connected.value = false; });
     socket.on("state_update", applyState);
 
     onMounted(async () => {
-      const res = await fetch("/api/state");
-      applyState(await res.json());
+      const [stateRes, settingsRes] = await Promise.all([
+        fetch("/api/state"),
+        fetch("/api/settings"),
+      ]);
+      applyState(await stateRes.json());
+      const settings = await settingsRes.json();
+      pcBackendUrl.value = settings.pc_backend_url || "";
     });
 
     return {
       connected, state, led, ledBrightnessPct, ledHex, screen,
       simEnabled, audioFile, volume, bedOccupied, lastSensorTime,
+      pcBackendUrl, pcUrlSaved,
       onColorPick, onRgbSlider, debouncedApplyLed,
       ledOff, applyScreen, applySimulate, simulateBed,
-      debouncedApplyVolume, playAudio, stopAudio,
+      debouncedApplyVolume, playAudio, stopAudio, savePcUrl,
     };
   },
 }).mount("#app");
