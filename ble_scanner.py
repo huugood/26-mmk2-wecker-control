@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DEVICE_NAME  = "Wecker"          # prefix match — truncated to "Wecke" in some scans
+DEVICE_NAME  = "Weck"            # prefix match — name is truncated to "Wecke" by BLE ad packet size
 SERVICE_UUID = "12345678-1234-1234-1234-123456789abc"
 CHAR_UUID    = "12345678-1234-1234-1234-123456789abd"
 
